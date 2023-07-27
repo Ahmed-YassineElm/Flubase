@@ -86,11 +86,19 @@ class MyAppState extends ChangeNotifier {
 }
 
 class MyHomePage extends StatefulWidget {
+  final String? userEmail; // Add the userEmail property
+  MyHomePage({required this.userEmail});
   @override
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
 class _MyHomePageState extends State<MyHomePage> {
+  String? userEmail;
+  void initState() {
+    super.initState();
+    userEmail = widget.userEmail; // Assign the userEmail from the widget
+  }
+
   var selectedIndex = 0;
 
   void _showLogoutOverlay(BuildContext context) {
@@ -124,69 +132,79 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    Widget page;
-    switch (selectedIndex) {
-      case 0:
-        page = GeneratorPage();
-        break;
-      case 1:
-        page = FavoritesPage();
-        break;
-      case 2:
-        page = ViewPage();
-        break;
-      case 3:
-        page = LogOut();
-        break;
-      default:
-        throw UnimplementedError('no widget for $selectedIndex');
-    }
+    if (userEmail == null) {
+      return Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    } else {
+      Widget page;
+      switch (selectedIndex) {
+        case 0:
+          page = GeneratorPage();
+          break;
+        case 1:
+          page = FavoritesPage();
+          break;
+        case 2:
+          page = ViewPage(
+            userEmail: userEmail!,
+          );
+          break;
+        case 3:
+          page = LogOut();
+          break;
+        default:
+          throw UnimplementedError('no widget for $selectedIndex');
+      }
 
-    return Scaffold(
-      body: Row(
-        children: [
-          SafeArea(
-            child: NavigationRail(
-              extended: false,
-              destinations: [
-                NavigationRailDestination(
-                  icon: Icon(Icons.home),
-                  label: Text('Home'),
-                ),
-                NavigationRailDestination(
-                  icon: Icon(Icons.favorite),
-                  label: Text('Favorites'),
-                ),
-                NavigationRailDestination(
-                  icon: Icon(Icons.view_list),
-                  label: Text('Create'),
-                ),
-                NavigationRailDestination(
-                  icon: Icon(Icons.logout),
-                  label: Text('Log Out'),
-                ),
-              ],
-              selectedIndex: selectedIndex,
-              onDestinationSelected: (value) {
-                setState(() {
-                  if (value == 3) {
-                    _showLogoutOverlay(context);
-                  } else {
-                    selectedIndex = value;
-                  }
-                });
-              },
+      return Scaffold(
+        body: Row(
+          children: [
+            SafeArea(
+              child: NavigationRail(
+                extended: false,
+                destinations: [
+                  NavigationRailDestination(
+                    icon: Icon(Icons.home),
+                    label: Text('Home'),
+                  ),
+                  NavigationRailDestination(
+                    icon: Icon(Icons.favorite),
+                    label: Text('Favorites'),
+                  ),
+                  NavigationRailDestination(
+                    icon: Icon(Icons.view_list),
+                    label: Text('Create'),
+                  ),
+                  NavigationRailDestination(
+                    icon: Icon(Icons.logout),
+                    label: Text('Log Out'),
+                  ),
+                ],
+                selectedIndex: selectedIndex,
+                onDestinationSelected: (value) {
+                  setState(() {
+                    if (value == 3) {
+                      _showLogoutOverlay(context);
+                    } else {
+                      selectedIndex = value;
+                    }
+                  });
+                },
+              ),
             ),
-          ),
-          Expanded(
-            child: Container(
-              color: Theme.of(context).colorScheme.primaryContainer,
-              child: page,
+            Expanded(
+              child: Container(
+                color: Theme.of(context).colorScheme.primaryContainer,
+                child: page,
+              ),
             ),
-          ),
-        ],
-      ),
-    );
+          ],
+        ),
+      );
+    }
   }
 }
 
@@ -437,6 +455,7 @@ class VerifyEmailPage extends StatefulWidget {
 }
 
 class _VerifyEmailPageState extends State<VerifyEmailPage> {
+  int selectedIndex = 0;
   bool isEmailVerified = false;
   bool canResendEmail = false;
   Timer? timer;
@@ -464,7 +483,10 @@ class _VerifyEmailPageState extends State<VerifyEmailPage> {
     setState(() {
       isEmailVerified = FirebaseAuth.instance.currentUser!.emailVerified;
     });
-    if (isEmailVerified) timer?.cancel();
+    if (isEmailVerified) {
+      timer?.cancel();
+      navigateToCreateProfilePage();
+    }
   }
 
   Future sendVerificationEmail() async {
@@ -485,7 +507,7 @@ class _VerifyEmailPageState extends State<VerifyEmailPage> {
 
   @override
   Widget build(BuildContext context) => isEmailVerified
-      ? MyHomePage()
+      ? MyHomePage(userEmail: FirebaseAuth.instance.currentUser!.email!)
       : Scaffold(
           appBar: AppBar(
             title: Text('Verify Email'),
@@ -526,9 +548,21 @@ class _VerifyEmailPageState extends State<VerifyEmailPage> {
                     style: ElevatedButton.styleFrom(
                       minimumSize: Size.fromHeight(50),
                     ),
-                  )
+                  ),
                 ],
               )));
+  Future<void> navigateToCreateProfilePage() async {
+    int selectedIndex = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CreateProfilePage(),
+      ),
+    );
+
+    setState(() {
+      this.selectedIndex = selectedIndex;
+    });
+  }
 }
 
 class AuthPage extends StatefulWidget {
@@ -756,22 +790,26 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   }
 }
 
-class CreatePage extends StatefulWidget {
+class CreateItemPage extends StatefulWidget {
   final int selectedIndex;
+  final String userEmail;
+  CreateItemPage({required this.selectedIndex, required this.userEmail});
 
-  CreatePage({required this.selectedIndex});
   @override
-  State<CreatePage> createState() => _CreatePageState();
+  State<CreateItemPage> createState() => _CreateItemPageState();
 }
 
-class _CreatePageState extends State<CreatePage> {
+class _CreateItemPageState extends State<CreateItemPage> {
   final nameController = TextEditingController();
-  final ageController = TextEditingController();
+  final descriptionController = TextEditingController();
+  final priceController = TextEditingController();
   DateTime? selectedDate;
+
   @override
   void dispose() {
     nameController.dispose();
-    ageController.dispose();
+    descriptionController.dispose();
+    priceController.dispose();
     super.dispose();
   }
 
@@ -782,6 +820,7 @@ class _CreatePageState extends State<CreatePage> {
       firstDate: DateTime(1900),
       lastDate: DateTime(2100),
     );
+
     if (pickedDate != null && pickedDate != selectedDate) {
       setState(() {
         selectedDate = pickedDate;
@@ -791,7 +830,7 @@ class _CreatePageState extends State<CreatePage> {
 
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
-          title: Text('Add User'),
+          title: Text('Add Item'),
         ),
         body: ListView(
           padding: EdgeInsets.all(16),
@@ -802,8 +841,13 @@ class _CreatePageState extends State<CreatePage> {
             ),
             const SizedBox(height: 24),
             TextField(
-              decoration: InputDecoration(labelText: 'Age'),
-              controller: ageController,
+              controller: descriptionController,
+              decoration: InputDecoration(labelText: 'Description'),
+            ),
+            const SizedBox(height: 24),
+            TextField(
+              controller: priceController,
+              decoration: InputDecoration(labelText: 'Price'),
               keyboardType: TextInputType.number,
             ),
             const SizedBox(height: 24),
@@ -811,7 +855,7 @@ class _CreatePageState extends State<CreatePage> {
               onTap: () => _selectDate(context),
               child: InputDecorator(
                 decoration: InputDecoration(
-                  labelText: 'Birthday',
+                  labelText: 'Creation Date',
                   hintText: 'Select a date',
                   border: OutlineInputBorder(),
                 ),
@@ -826,19 +870,22 @@ class _CreatePageState extends State<CreatePage> {
             ElevatedButton(
               child: Text('Create'),
               onPressed: () async {
-                final user = Users(
+                final item = Item(
                   name: nameController.text,
-                  age: int.parse(ageController.text),
-                  birthday: selectedDate ?? DateTime.now(),
+                  description: descriptionController.text,
+                  price: double.parse(priceController.text),
+                  creationDate: selectedDate ?? DateTime.now(),
+                  createdBy: widget
+                      .userEmail, // You can set the user who created it here
                 );
 
                 try {
-                  await createUser(user);
-                  Navigator.pop(context,
-                      widget.selectedIndex); // Pass the selectedIndex back
+                  await createItem(item);
+                  Navigator.pop(context, widget.selectedIndex);
+                  // Pass the selectedIndex back
                 } catch (e) {
-                  print('Error creating user: $e');
-                  // Handle any errors that occurred during user creation.
+                  print('Error creating item: $e');
+                  // Handle any errors that occurred during item creation.
                 }
               },
             ),
@@ -846,65 +893,68 @@ class _CreatePageState extends State<CreatePage> {
         ),
       );
 
-  Future createUser(Users user) async {
-    final docUser = FirebaseFirestore.instance.collection('users').doc();
-    user.id = docUser.id;
-
-    final json = user.toJson();
-    await docUser.set(json);
+  Future createItem(Item item) async {
+    final docItem =
+        FirebaseFirestore.instance.collection('items').doc(item.name);
+    item.name = docItem.id;
+    final json = item.toJson();
+    await docItem.set(json);
   }
 }
 
 class ViewPage extends StatefulWidget {
+  final String userEmail; // Add the userEmail property
+  ViewPage({required this.userEmail});
   @override
   State<ViewPage> createState() => _ViewPageState();
 }
 
 class _ViewPageState extends State<ViewPage> {
-  final controller = TextEditingController();
   Map<String, bool> showMoreMap = {}; //added
+
   int selectedIndex = 0;
+
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
-          title: Text("All Users"),
+          title: Text("All Items"),
         ),
-        body: StreamBuilder<List<Users>>(
-            stream: readUsers(),
-            builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                return Text("Something went wrong");
-              } else if (snapshot.hasData) {
-                final users = snapshot.data!;
-                return ListView(
-                  children: users.map(buildUser).toList(),
-                );
-              } else {
-                return Center(child: CircularProgressIndicator());
-              }
-            }),
+        body: StreamBuilder<List<Item>>(
+          stream: readItems(),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return Text("Something went wrong");
+            } else if (snapshot.hasData) {
+              final items = snapshot.data!;
+              return ListView(
+                children: items.map(buildItem).toList(),
+              );
+            } else {
+              return Center(child: CircularProgressIndicator());
+            }
+          },
+        ),
         floatingActionButton: FloatingActionButton(
           child: Icon(Icons.add),
           onPressed: navigateToCreatePage,
         ),
       );
-  Widget buildUser(Users user) {
-    bool isExpanded = showMoreMap[user.id] ?? false;
 
+  Widget buildItem(Item item) {
+    bool isExpanded = showMoreMap[item.name] ?? false; // modified
     return Column(
       children: [
         ListTile(
-          leading: CircleAvatar(child: Text('${user.age}')),
-          title: Text(user.name),
-          subtitle: Text(user.birthday.toIso8601String()),
+          title: Text(item.name),
+          subtitle: Text(item.creationDate.toIso8601String()),
           trailing: PopupMenuButton(
             onSelected: (value) {
               if (value == 'delete') {
-                // Perform the delete operation for the user here
-                deleteUser(user.id);
+                // Perform the delete operation for the item here
+                deleteItem(item.name);
               } else if (value == 'edit') {
-                // Navigate to the edit page to modify the user here
-                navigateToEditPage(user);
+                // Navigate to the edit page to modify the item here
+                navigateToEditPage(item);
               }
             },
             itemBuilder: (context) => [
@@ -919,72 +969,79 @@ class _ViewPageState extends State<ViewPage> {
             ],
           ),
         ),
-
-        if (isExpanded) // Render additional user info if isExpanded is true
+        if (isExpanded) // Render additional item info if isExpanded is true
           Padding(
             padding: EdgeInsets.symmetric(horizontal: 16.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("ID: ${user.id}"),
+                Text("Description: ${item.description}"),
+                Text("Price: ${item.price}"),
                 // Add more information as needed...
-                // For example, Text("Email: ${user.email}"),
-                // Text("Address: ${user.address}"),
+                // For example, Text("CreatedByUser: ${item.createdByUser}"),
               ],
             ),
           ),
         TextButton(
           onPressed: () {
             setState(() {
-              showMoreMap[user.id] = !isExpanded;
+              showMoreMap[item.name] = !isExpanded; // modified
             });
           },
           child: Text(isExpanded ? "Show Less" : "Show More"),
         ),
-        Divider(), // Add a divider for visual separation between users
+        Divider(), // Add a divider for visual separation between items
       ],
     );
   }
 
-  Stream<List<Users>> readUsers() => FirebaseFirestore.instance
-      .collection('users')
+  Stream<List<Item>> readItems() => FirebaseFirestore.instance
+      .collection('items')
       .snapshots()
       .map((snapshot) => snapshot.docs
-          .map((doc) => Users.fromJson(doc.data() as Map<String, dynamic>))
+          .map((doc) => Item.fromJson(doc.data() as Map<String, dynamic>))
           .toList());
+
   Future<void> navigateToCreatePage() async {
+    User? user = FirebaseAuth.instance.currentUser;
+    String? userEmail = user?.email!;
     int selectedIndex = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => CreatePage(selectedIndex: this.selectedIndex),
+        builder: (context) => CreateItemPage(
+          selectedIndex: this.selectedIndex,
+          userEmail: widget.userEmail,
+        ),
       ),
     );
-
     // When the CreatePage is dismissed, update the selectedIndex
     setState(() {
       this.selectedIndex = selectedIndex;
     });
   }
 
-  void deleteUser(String userId) {
-    FirebaseFirestore.instance.collection('users').doc(userId).delete();
+  void deleteItem(String itemName) {
+    FirebaseFirestore.instance.collection('items').doc(itemName).delete();
   }
 
   // To navigate to the edit page, you can use the following method:
-  void navigateToEditPage(Users user) {
+  void navigateToEditPage(Item item) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => EditPage(user: user),
+        builder: (context) => EditPage(
+          item: item,
+          userEmail: widget.userEmail,
+        ),
       ),
     );
   }
 }
 
 class EditPage extends StatefulWidget {
-  final Users user;
-
-  EditPage({required this.user});
+  final Item item;
+  final String userEmail;
+  EditPage({required this.item, required this.userEmail});
 
   @override
   _EditPageState createState() => _EditPageState();
@@ -992,21 +1049,24 @@ class EditPage extends StatefulWidget {
 
 class _EditPageState extends State<EditPage> {
   final nameController = TextEditingController();
-  final ageController = TextEditingController();
+  final descriptionController = TextEditingController();
+  final priceController = TextEditingController();
   DateTime? selectedDate;
 
   @override
   void initState() {
     super.initState();
-    nameController.text = widget.user.name;
-    ageController.text = widget.user.age.toString();
-    selectedDate = widget.user.birthday;
+    nameController.text = widget.item.name;
+    descriptionController.text = widget.item.description;
+    priceController.text = widget.item.price.toString();
+    selectedDate = widget.item.creationDate;
   }
 
   @override
   void dispose() {
     nameController.dispose();
-    ageController.dispose();
+    descriptionController.dispose();
+    priceController.dispose();
     super.dispose();
   }
 
@@ -1028,8 +1088,90 @@ class _EditPageState extends State<EditPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Edit User'),
+        title: Text('Edit Item'),
       ),
+      body: ListView(
+        padding: EdgeInsets.all(16),
+        children: <Widget>[
+          TextField(
+            controller: nameController,
+            decoration: InputDecoration(labelText: 'Name'),
+          ),
+          const SizedBox(height: 24),
+          TextField(
+            controller: descriptionController,
+            decoration: InputDecoration(labelText: 'Description'),
+          ),
+          const SizedBox(height: 24),
+          TextField(
+            controller: priceController,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(labelText: 'Price'),
+          ),
+          const SizedBox(height: 24),
+          GestureDetector(
+            onTap: () => _selectDate(context),
+            child: InputDecorator(
+              decoration: InputDecoration(
+                labelText: 'Creation Date',
+                hintText: 'Select a date',
+                border: OutlineInputBorder(),
+              ),
+              child: Text(
+                selectedDate != null
+                    ? DateFormat('yyyy-MM-dd').format(selectedDate!)
+                    : 'Select a date',
+              ),
+            ),
+          ),
+          const SizedBox(height: 32),
+          ElevatedButton(
+            child: Text('Save Changes'),
+            onPressed: () async {
+              final updatedItem = Item(
+                name: nameController.text,
+                description: descriptionController.text,
+                price: double.parse(priceController.text),
+                creationDate: selectedDate ?? DateTime.now(),
+                createdBy: widget.userEmail,
+              );
+
+              try {
+                await updateItem(updatedItem);
+                Navigator.pop(context);
+              } catch (e) {
+                print('Error updating item: $e');
+                // Handle any errors that occurred during item update.
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future updateItem(Item item) async {
+    final docItem =
+        FirebaseFirestore.instance.collection('items').doc(item.name);
+    final json = item.toJson();
+    await docItem.update(json);
+  }
+}
+
+class CreateProfilePage extends StatefulWidget {
+  @override
+  State<CreateProfilePage> createState() => _CreateProfilePageState();
+}
+
+class _CreateProfilePageState extends State<CreateProfilePage> {
+  final nameController = TextEditingController();
+  final ageController = TextEditingController();
+  DateTime? selectedDate;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('Create Profile')),
       body: ListView(
         padding: EdgeInsets.all(16),
         children: <Widget>[
@@ -1061,21 +1203,23 @@ class _EditPageState extends State<EditPage> {
           ),
           const SizedBox(height: 32),
           ElevatedButton(
-            child: Text('Save Changes'),
+            child: Text('Save Profile'),
             onPressed: () async {
-              final updatedUser = Users(
-                id: widget.user.id,
-                name: nameController.text,
-                age: int.parse(ageController.text),
-                birthday: selectedDate ?? DateTime.now(),
-              );
-
-              try {
-                await updateUser(updatedUser);
-                Navigator.pop(context);
-              } catch (e) {
-                print('Error updating user: $e');
-                // Handle any errors that occurred during user update.
+              final user = FirebaseAuth.instance.currentUser;
+              if (user != null) {
+                final profile = Users(
+                  email: user.email!, // Use the email directly as the ID
+                  name: nameController.text,
+                  age: int.parse(ageController.text),
+                  birthday: selectedDate ?? DateTime.now(),
+                );
+                try {
+                  await createUserProfile(profile);
+                  Navigator.pop(context); // Go back to the previous page
+                } catch (e) {
+                  print('Error creating profile: $e');
+                  // Handle any errors that occurred during profile creation.
+                }
               }
             },
           ),
@@ -1084,36 +1228,92 @@ class _EditPageState extends State<EditPage> {
     );
   }
 
-  Future updateUser(Users user) async {
-    final docUser = FirebaseFirestore.instance.collection('users').doc(user.id);
-    final json = user.toJson();
-    await docUser.update(json);
+  Future<void> createUserProfile(Users profile) async {
+    final docUser =
+        FirebaseFirestore.instance.collection('users').doc(profile.email);
+    final json = profile.toJson();
+    await docUser.set(json);
+  }
+
+  Future<void> _selectDate(BuildContext context) async {
+    final DateTime? pickedDate = await showDatePicker(
+      context: context,
+      initialDate: selectedDate ?? DateTime.now(),
+      firstDate: DateTime(1900),
+      lastDate: DateTime(2100),
+    );
+
+    if (pickedDate != null && pickedDate != selectedDate) {
+      setState(() {
+        selectedDate = pickedDate;
+      });
+    }
   }
 }
 
 class Users {
-  String id;
   final String name;
+  final String email;
   final int age;
   final DateTime birthday;
   Users({
-    this.id = '',
+    required this.email,
     required this.name,
     required this.age,
     required this.birthday,
   });
 
   Map<String, dynamic> toJson() => {
-        'id': id,
+        'email': email,
         'name': name,
         'age': age,
         'birthday': birthday,
       };
 
   static Users fromJson(Map<String, dynamic> json) => Users(
-        id: json['id'] ?? '',
+        email: json['email'],
         name: json['name'],
         age: json['age'],
         birthday: (json['birthday'] as Timestamp).toDate(),
       );
+}
+
+class Item {
+  String name;
+  String description;
+  DateTime creationDate;
+  double price;
+  String createdBy;
+
+  Item({
+    required this.name,
+    required this.description,
+    required this.creationDate,
+    required this.price,
+    required this.createdBy,
+  });
+
+  // You can add more methods or properties to the class as needed
+
+  // Convert the item to a JSON format for storage in Firestore
+  Map<String, dynamic> toJson() {
+    return {
+      'name': name,
+      'description': description,
+      'creationDate': creationDate.toIso8601String(),
+      'price': price,
+      'createdBy': createdBy,
+    };
+  }
+
+  // Create an item object from a JSON map retrieved from Firestore
+  static Item fromJson(Map<String, dynamic> json) {
+    return Item(
+      name: json['name'],
+      description: json['description'],
+      creationDate: DateTime.parse(json['creationDate']),
+      price: json['price'],
+      createdBy: json['createdBy'],
+    );
+  }
 }
