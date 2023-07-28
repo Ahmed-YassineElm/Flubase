@@ -1,5 +1,6 @@
 import 'dart:async';
-
+import 'dart:io';
+import 'package:firebase_storage/firebase_storage.dart' as firebase_storage;
 import 'package:date_field/date_field.dart';
 import 'package:flutter/gestures.dart';
 import 'package:intl/intl.dart';
@@ -10,6 +11,7 @@ import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:email_validator/email_validator.dart';
 
 import 'main.dart';
@@ -93,10 +95,8 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  String? userEmail;
   void initState() {
-    super.initState();
-    userEmail = widget.userEmail; // Assign the userEmail from the widget
+    super.initState(); // Assign the userEmail from the widget
   }
 
   var selectedIndex = 0;
@@ -132,7 +132,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    if (userEmail == null) {
+    if (widget.userEmail == null) {
       return Scaffold(
         body: Center(
           child: CircularProgressIndicator(),
@@ -149,10 +149,13 @@ class _MyHomePageState extends State<MyHomePage> {
           break;
         case 2:
           page = ViewPage(
-            userEmail: userEmail!,
+            userEmail: widget.userEmail!,
           );
           break;
         case 3:
+          page = ProfilePage();
+          break;
+        case 4:
           page = LogOut();
           break;
         default:
@@ -179,6 +182,10 @@ class _MyHomePageState extends State<MyHomePage> {
                     label: Text('Create'),
                   ),
                   NavigationRailDestination(
+                    icon: Icon(Icons.person),
+                    label: Text('Profile'),
+                  ),
+                  NavigationRailDestination(
                     icon: Icon(Icons.logout),
                     label: Text('Log Out'),
                   ),
@@ -186,7 +193,7 @@ class _MyHomePageState extends State<MyHomePage> {
                 selectedIndex: selectedIndex,
                 onDestinationSelected: (value) {
                   setState(() {
-                    if (value == 3) {
+                    if (value == 4) {
                       _showLogoutOverlay(context);
                     } else {
                       selectedIndex = value;
@@ -803,7 +810,6 @@ class _CreateItemPageState extends State<CreateItemPage> {
   final nameController = TextEditingController();
   final descriptionController = TextEditingController();
   final priceController = TextEditingController();
-  DateTime? selectedDate;
 
   @override
   void dispose() {
@@ -811,21 +817,6 @@ class _CreateItemPageState extends State<CreateItemPage> {
     descriptionController.dispose();
     priceController.dispose();
     super.dispose();
-  }
-
-  Future<void> _selectDate(BuildContext context) async {
-    final DateTime? pickedDate = await showDatePicker(
-      context: context,
-      initialDate: selectedDate ?? DateTime.now(),
-      firstDate: DateTime(1900),
-      lastDate: DateTime(2100),
-    );
-
-    if (pickedDate != null && pickedDate != selectedDate) {
-      setState(() {
-        selectedDate = pickedDate;
-      });
-    }
   }
 
   Widget build(BuildContext context) => Scaffold(
@@ -850,22 +841,6 @@ class _CreateItemPageState extends State<CreateItemPage> {
               decoration: InputDecoration(labelText: 'Price'),
               keyboardType: TextInputType.number,
             ),
-            const SizedBox(height: 24),
-            GestureDetector(
-              onTap: () => _selectDate(context),
-              child: InputDecorator(
-                decoration: InputDecoration(
-                  labelText: 'Creation Date',
-                  hintText: 'Select a date',
-                  border: OutlineInputBorder(),
-                ),
-                child: Text(
-                  selectedDate != null
-                      ? DateFormat('yyyy-MM-dd').format(selectedDate!)
-                      : 'Select a date',
-                ),
-              ),
-            ),
             const SizedBox(height: 32),
             ElevatedButton(
               child: Text('Create'),
@@ -874,7 +849,7 @@ class _CreateItemPageState extends State<CreateItemPage> {
                   name: nameController.text,
                   description: descriptionController.text,
                   price: double.parse(priceController.text),
-                  creationDate: selectedDate ?? DateTime.now(),
+                  creationDate: DateTime.now(),
                   createdBy: widget
                       .userEmail, // You can set the user who created it here
                 );
@@ -896,7 +871,6 @@ class _CreateItemPageState extends State<CreateItemPage> {
   Future createItem(Item item) async {
     final docItem =
         FirebaseFirestore.instance.collection('items').doc(item.name);
-    item.name = docItem.id;
     final json = item.toJson();
     await docItem.set(json);
   }
@@ -923,7 +897,7 @@ class _ViewPageState extends State<ViewPage> {
           stream: readItems(),
           builder: (context, snapshot) {
             if (snapshot.hasError) {
-              return Text("Something went wrong");
+              return Text("Something went wrong $snapshot");
             } else if (snapshot.hasData) {
               final items = snapshot.data!;
               return ListView(
@@ -977,6 +951,7 @@ class _ViewPageState extends State<ViewPage> {
               children: [
                 Text("Description: ${item.description}"),
                 Text("Price: ${item.price}"),
+                Text("Created by: ${item.createdBy}")
                 // Add more information as needed...
                 // For example, Text("CreatedByUser: ${item.createdByUser}"),
               ],
@@ -995,12 +970,42 @@ class _ViewPageState extends State<ViewPage> {
     );
   }
 
-  Stream<List<Item>> readItems() => FirebaseFirestore.instance
+  /*Stream<List<Item>> readItems() => FirebaseFirestore.instance
       .collection('items')
       .snapshots()
       .map((snapshot) => snapshot.docs
           .map((doc) => Item.fromJson(doc.data() as Map<String, dynamic>))
-          .toList());
+          .toList());*/
+  Stream<List<Item>> readItems() {
+    return FirebaseFirestore.instance.collection('items').snapshots().transform(
+          StreamTransformer<QuerySnapshot<Map<String, dynamic>>,
+              List<Item>>.fromHandlers(
+            handleData: (QuerySnapshot<Map<String, dynamic>> snapshot,
+                EventSink<List<Item>> sink) {
+              final items = snapshot.docs.map((doc) {
+                final data = doc.data();
+                return Item(
+                  name: data['name'] ??
+                      '', // Replace '' with a default value if necessary
+                  description: data['description'] ??
+                      '', // Replace '' with a default value if necessary
+                  creationDate: DateTime.parse(data['creationDate'] ??
+                      '1970-01-01'), // Replace with a default value if necessary
+                  price: data['price'] ??
+                      0.0, // Replace 0.0 with a default value if necessary
+                  createdBy: data['createdBy'] ??
+                      '', // Replace '' with a default value if necessary
+                );
+              }).toList();
+              sink.add(items);
+            },
+            handleError: (error, stackTrace, sink) {
+              print("Error fetching items: $error");
+              sink.addError("Something went wrong");
+            },
+          ),
+        );
+  }
 
   Future<void> navigateToCreatePage() async {
     User? user = FirebaseAuth.instance.currentUser;
@@ -1167,6 +1172,7 @@ class _CreateProfilePageState extends State<CreateProfilePage> {
   final nameController = TextEditingController();
   final ageController = TextEditingController();
   DateTime? selectedDate;
+  File? _imageFile;
 
   @override
   Widget build(BuildContext context) {
@@ -1251,16 +1257,342 @@ class _CreateProfilePageState extends State<CreateProfilePage> {
   }
 }
 
+class ProfilePage extends StatefulWidget {
+  @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<ProfilePage> {
+  final GlobalKey<_ProfilePageState> _profilePageKey =
+      GlobalKey<_ProfilePageState>();
+  final nameController = TextEditingController();
+  final ageController = TextEditingController();
+  DateTime? selectedDate;
+  File? _imageFile;
+  String _imageUrl = "";
+
+  @override
+  void initState() {
+    super.initState();
+    // Fetch the user profile data and populate the fields
+    fetchUserProfile();
+  }
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    ageController.dispose();
+    super.dispose();
+  }
+
+  Future<void> fetchUserProfile() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final docUser =
+          FirebaseFirestore.instance.collection('users').doc(user.email);
+      final userData = await docUser.get();
+      if (userData.exists) {
+        final profile = Users.fromJson(userData.data() as Map<String, dynamic>);
+        setState(() {
+          nameController.text = profile.name;
+          ageController.text = profile.age.toString();
+          selectedDate = profile.birthday;
+          _imageUrl = profile.imageUrl;
+        });
+      }
+    }
+  }
+
+  Future<void> updateUserProfile() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final docUser =
+          FirebaseFirestore.instance.collection('users').doc(user.email);
+      final profile = Users(
+        email: user.email!,
+        name: nameController.text,
+        age: int.parse(ageController.text),
+        birthday: selectedDate ?? DateTime.now(),
+      );
+      await docUser.set(profile.toJson());
+    }
+  }
+
+  Future<void> _selectDate(BuildContext context) async {
+    final DateTime? pickedDate = await showDatePicker(
+      context: context,
+      initialDate: selectedDate ?? DateTime.now(),
+      firstDate: DateTime(1900),
+      lastDate: DateTime(2100),
+    );
+    if (pickedDate != null && pickedDate != selectedDate) {
+      setState(() {
+        selectedDate = pickedDate;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('Profile')),
+      body: ListView(
+        padding: EdgeInsets.all(16),
+        children: <Widget>[
+          TextFormField(
+            readOnly: true,
+            initialValue: FirebaseAuth.instance.currentUser?.email,
+            decoration: InputDecoration(
+              labelText: 'Email',
+              enabledBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: Colors.grey),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: Colors.blue),
+              ),
+            ),
+          ),
+          SizedBox(height: 16),
+          TextField(
+            controller: nameController,
+            decoration: InputDecoration(
+              labelText: 'Name',
+              enabledBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: Colors.grey),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: Colors.blue),
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          TextField(
+            controller: ageController,
+            decoration: InputDecoration(
+              labelText: 'Age',
+              enabledBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: Colors.grey),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: Colors.blue),
+              ),
+            ),
+            keyboardType: TextInputType.number,
+          ),
+          const SizedBox(height: 24),
+          GestureDetector(
+            onTap: () => _selectDate(context),
+            child: InputDecorator(
+              decoration: InputDecoration(
+                labelText: 'Birthday',
+                hintText: "Select a date",
+                enabledBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: Colors.grey),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: Colors.blue),
+                ),
+              ),
+              child: Text(
+                selectedDate != null
+                    ? DateFormat('yyyy-MM-dd').format(selectedDate!)
+                    : 'Select a date',
+              ),
+            ),
+          ),
+          const SizedBox(height: 32),
+          if (_imageUrl.isEmpty)
+            Container(
+              width: 150,
+              height: 150,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.grey),
+              ),
+              child: _imageFile != null
+                  ? ClipOval(
+                      child: Image.file(
+                        _imageFile!,
+                        width: 150,
+                        height: 150,
+                        fit: BoxFit.cover,
+                      ),
+                    )
+                  : Icon(Icons.person, size: 100, color: Colors.grey),
+            ),
+          SizedBox(height: 24),
+          _imageUrl.isNotEmpty
+              ? Stack(
+                  children: [
+                    Align(
+                      alignment: Alignment.center,
+                      child: Image.network(
+                        _imageUrl,
+                        width: 150,
+                        height: 150,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: IconButton(
+                        onPressed: _removeImage,
+                        icon: Icon(Icons.delete),
+                        color: Colors.red,
+                      ),
+                    ),
+                  ],
+                )
+              : ElevatedButton(
+                  onPressed: () {
+                    // Show a dialog to choose between camera and gallery
+                    showDialog(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: Text('Choose an option'),
+                        actions: [
+                          TextButton(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              _pickImage(ImageSource.camera);
+                            },
+                            child: Text('Camera'),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              _pickImage(ImageSource.gallery);
+                            },
+                            child: Text('Gallery'),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                  child: Text('Upload Image'),
+                ),
+          ElevatedButton(
+            onPressed: () async {
+              // Create the user profile object
+              Users userProfile = Users(
+                email: FirebaseAuth.instance.currentUser?.email ?? '',
+                name: nameController.text,
+                age: int.parse(ageController.text),
+                birthday: selectedDate ?? DateTime.now(),
+                imageUrl: _imageUrl, // Pass the current imageUrl
+              );
+
+              // Call the saveUserProfile function to update the profile
+              await saveUserProfile(userProfile, _imageFile);
+
+              // Show a snackbar to indicate success
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Profile updated successfully')),
+              );
+              fetchUserProfile();
+            },
+            child: Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    final pickedFile = await ImagePicker().pickImage(source: source);
+    if (pickedFile != null) {
+      setState(() {
+        _imageFile = File(pickedFile.path);
+      });
+    }
+  }
+
+  Future<void> _removeImage() async {
+    // Check if the profile has an existing image
+    if (_imageUrl.isNotEmpty) {
+      try {
+        // Get the reference to the image in Firebase Storage
+        firebase_storage.Reference ref =
+            firebase_storage.FirebaseStorage.instance.refFromURL(_imageUrl);
+
+        // Delete the image from Firebase Storage
+        await ref.delete();
+
+        setState(() {
+          // Set the image file and URL to null as it has been deleted
+          _imageFile = null;
+          _imageUrl = '';
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Profile picture removed')),
+        );
+      } catch (e) {
+        // Handle any errors that occur during the process
+        print("Error removing profile picture: $e");
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to remove profile picture')),
+        );
+      }
+    } else {
+      // If there is no image URL, simply reset the image file
+      setState(() {
+        _imageFile = null;
+      });
+    }
+  }
+
+  Future<void> saveUserProfile(
+    Users userProfile,
+    File? imageFile, // Optional image file parameter
+  ) async {
+    try {
+      // Step 1: Upload the image to Firebase Storage (if provided)
+      if (imageFile != null) {
+        String fileName = DateTime.now().millisecondsSinceEpoch.toString();
+        firebase_storage.Reference ref = firebase_storage
+            .FirebaseStorage.instance
+            .ref()
+            .child('profile_images')
+            .child(fileName);
+
+        // Upload the image file
+        await ref.putFile(imageFile);
+
+        // Get the download URL of the uploaded image
+        String imageUrl = await ref.getDownloadURL();
+
+        // Assign the download URL to the userProfile object
+        userProfile.imageUrl = imageUrl;
+      }
+
+      // Step 2: Save the user profile data to Firestore
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userProfile
+              .email) // Assuming you have a userId property in the Users class
+          .set(userProfile.toJson());
+    } catch (e) {
+      // Handle any errors that occur during the process
+      print("Error saving user profile: $e");
+    }
+  }
+}
+
 class Users {
   final String name;
   final String email;
   final int age;
   final DateTime birthday;
+  String imageUrl;
+
   Users({
     required this.email,
     required this.name,
     required this.age,
     required this.birthday,
+    this.imageUrl = '',
   });
 
   Map<String, dynamic> toJson() => {
@@ -1268,6 +1600,7 @@ class Users {
         'name': name,
         'age': age,
         'birthday': birthday,
+        'imageUrl': imageUrl,
       };
 
   static Users fromJson(Map<String, dynamic> json) => Users(
@@ -1275,6 +1608,7 @@ class Users {
         name: json['name'],
         age: json['age'],
         birthday: (json['birthday'] as Timestamp).toDate(),
+        imageUrl: json['imageUrl'],
       );
 }
 
