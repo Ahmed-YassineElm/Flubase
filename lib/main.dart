@@ -156,6 +156,9 @@ class _MyHomePageState extends State<MyHomePage> {
           page = ProfilePage();
           break;
         case 4:
+          page = MyItemsPage(userEmail: widget.userEmail!);
+          break;
+        case 5:
           page = LogOut();
           break;
         default:
@@ -186,6 +189,10 @@ class _MyHomePageState extends State<MyHomePage> {
                     label: Text('Profile'),
                   ),
                   NavigationRailDestination(
+                    icon: Icon(Icons.data_object),
+                    label: Text('My Items'),
+                  ),
+                  NavigationRailDestination(
                     icon: Icon(Icons.logout),
                     label: Text('Log Out'),
                   ),
@@ -193,7 +200,7 @@ class _MyHomePageState extends State<MyHomePage> {
                 selectedIndex: selectedIndex,
                 onDestinationSelected: (value) {
                   setState(() {
-                    if (value == 4) {
+                    if (value == 5) {
                       _showLogoutOverlay(context);
                     } else {
                       selectedIndex = value;
@@ -810,13 +817,44 @@ class _CreateItemPageState extends State<CreateItemPage> {
   final nameController = TextEditingController();
   final descriptionController = TextEditingController();
   final priceController = TextEditingController();
-
+  File? _imageFile;
+  String _imageUrl = "";
   @override
   void dispose() {
     nameController.dispose();
     descriptionController.dispose();
     priceController.dispose();
     super.dispose();
+  }
+
+  // Function to handle image selection from the camera or gallery
+  Future<void> _pickImage(ImageSource source) async {
+    final pickedFile = await ImagePicker().pickImage(source: source);
+    if (pickedFile != null) {
+      setState(() {
+        _imageFile = File(pickedFile.path);
+      });
+    }
+  }
+
+  // Function to handle image upload to Firebase Storage
+  Future<String?> _uploadImage() async {
+    if (_imageFile == null) return null;
+
+    try {
+      final storageRef = firebase_storage.FirebaseStorage.instance
+          .ref()
+          .child('item_images/${DateTime.now().toString()}.png');
+      final uploadTask = storageRef.putFile(_imageFile!);
+      final snapshot = await uploadTask;
+      final imageUrl = await snapshot.ref.getDownloadURL();
+      setState(() {
+        _imageUrl = imageUrl; // Update the _imageUrl with the download URL
+      });
+    } catch (e) {
+      print('Error uploading image: $e');
+      return null;
+    }
   }
 
   Widget build(BuildContext context) => Scaffold(
@@ -841,17 +879,46 @@ class _CreateItemPageState extends State<CreateItemPage> {
               decoration: InputDecoration(labelText: 'Price'),
               keyboardType: TextInputType.number,
             ),
+            const SizedBox(
+              height: 24,
+            ),
+            _imageFile != null
+                ? Image.file(_imageFile!, height: 150) // Display selected image
+                : Container(), // Placeholder when no image is selected
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                ElevatedButton.icon(
+                  icon: Icon(Icons.camera_alt),
+                  label: Text('Camera'),
+                  onPressed: () => _pickImage(ImageSource.camera),
+                ),
+                ElevatedButton.icon(
+                  icon: Icon(Icons.photo_library),
+                  label: Text('Gallery'),
+                  onPressed: () => _pickImage(ImageSource.gallery),
+                ),
+              ],
+            ),
+
             const SizedBox(height: 32),
             ElevatedButton(
               child: Text('Create'),
               onPressed: () async {
+                if (_imageFile != null) {
+                  await _uploadImage();
+                }
+
+                // Create the item object with the image URL
                 final item = Item(
                   name: nameController.text,
                   description: descriptionController.text,
                   price: double.parse(priceController.text),
                   creationDate: DateTime.now(),
-                  createdBy: widget
-                      .userEmail, // You can set the user who created it here
+                  createdBy: widget.userEmail,
+                  image:
+                      _imageUrl, // Set the image URL obtained from _uploadImage()
                 );
 
                 try {
@@ -877,15 +944,16 @@ class _CreateItemPageState extends State<CreateItemPage> {
 }
 
 class ViewPage extends StatefulWidget {
-  final String userEmail; // Add the userEmail property
+  final String userEmail;
+
   ViewPage({required this.userEmail});
+
   @override
   State<ViewPage> createState() => _ViewPageState();
 }
 
 class _ViewPageState extends State<ViewPage> {
-  Map<String, bool> showMoreMap = {}; //added
-
+  Map<String, bool> showMoreMap = {};
   int selectedIndex = 0;
 
   @override
@@ -900,50 +968,33 @@ class _ViewPageState extends State<ViewPage> {
               return Text("Something went wrong $snapshot");
             } else if (snapshot.hasData) {
               final items = snapshot.data!;
+
+              // Filter out the items created by the current user
+              final filteredItems = items
+                  .where((item) => item.createdBy != widget.userEmail)
+                  .toList();
+
               return ListView(
-                children: items.map(buildItem).toList(),
+                children: filteredItems.map(buildItem).toList(),
               );
             } else {
               return Center(child: CircularProgressIndicator());
             }
           },
         ),
-        floatingActionButton: FloatingActionButton(
-          child: Icon(Icons.add),
-          onPressed: navigateToCreatePage,
-        ),
       );
 
   Widget buildItem(Item item) {
-    bool isExpanded = showMoreMap[item.name] ?? false; // modified
+    bool isExpanded = showMoreMap[item.name] ?? false;
+
     return Column(
       children: [
         ListTile(
+          leading: _buildItemAvatar(item.image),
           title: Text(item.name),
           subtitle: Text(item.creationDate.toIso8601String()),
-          trailing: PopupMenuButton(
-            onSelected: (value) {
-              if (value == 'delete') {
-                // Perform the delete operation for the item here
-                deleteItem(item.name);
-              } else if (value == 'edit') {
-                // Navigate to the edit page to modify the item here
-                navigateToEditPage(item);
-              }
-            },
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                value: 'edit',
-                child: Text('Edit'),
-              ),
-              PopupMenuItem(
-                value: 'delete',
-                child: Text('Delete'),
-              ),
-            ],
-          ),
         ),
-        if (isExpanded) // Render additional item info if isExpanded is true
+        if (isExpanded)
           Padding(
             padding: EdgeInsets.symmetric(horizontal: 16.0),
             child: Column(
@@ -951,7 +1002,7 @@ class _ViewPageState extends State<ViewPage> {
               children: [
                 Text("Description: ${item.description}"),
                 Text("Price: ${item.price}"),
-                Text("Created by: ${item.createdBy}")
+                Text("Created by: ${item.createdBy}"),
                 // Add more information as needed...
                 // For example, Text("CreatedByUser: ${item.createdByUser}"),
               ],
@@ -960,22 +1011,32 @@ class _ViewPageState extends State<ViewPage> {
         TextButton(
           onPressed: () {
             setState(() {
-              showMoreMap[item.name] = !isExpanded; // modified
+              showMoreMap[item.name] = !isExpanded;
             });
           },
           child: Text(isExpanded ? "Show Less" : "Show More"),
         ),
-        Divider(), // Add a divider for visual separation between items
+        Divider(),
       ],
     );
   }
 
-  /*Stream<List<Item>> readItems() => FirebaseFirestore.instance
-      .collection('items')
-      .snapshots()
-      .map((snapshot) => snapshot.docs
-          .map((doc) => Item.fromJson(doc.data() as Map<String, dynamic>))
-          .toList());*/
+  Widget _buildItemAvatar(String? imageUrl) {
+    // Display a placeholder image if imageUrl is not available
+    if (imageUrl == null || imageUrl.isEmpty) {
+      return CircleAvatar(
+        radius: 25,
+        backgroundColor: Colors.grey,
+        child: Icon(Icons.image, color: Colors.white),
+      );
+    } else {
+      return CircleAvatar(
+        radius: 25,
+        backgroundImage: NetworkImage(imageUrl),
+      );
+    }
+  }
+
   Stream<List<Item>> readItems() {
     return FirebaseFirestore.instance.collection('items').snapshots().transform(
           StreamTransformer<QuerySnapshot<Map<String, dynamic>>,
@@ -985,16 +1046,18 @@ class _ViewPageState extends State<ViewPage> {
               final items = snapshot.docs.map((doc) {
                 final data = doc.data();
                 return Item(
-                  name: data['name'] ??
-                      '', // Replace '' with a default value if necessary
-                  description: data['description'] ??
-                      '', // Replace '' with a default value if necessary
-                  creationDate: DateTime.parse(data['creationDate'] ??
-                      '1970-01-01'), // Replace with a default value if necessary
-                  price: data['price'] ??
-                      0.0, // Replace 0.0 with a default value if necessary
-                  createdBy: data['createdBy'] ??
-                      '', // Replace '' with a default value if necessary
+                  name: data['name'] ?? '',
+                  // Replace '' with a default value if necessary
+                  description: data['description'] ?? '',
+                  // Replace '' with a default value if necessary
+                  creationDate:
+                      DateTime.parse(data['creationDate'] ?? '1970-01-01'),
+                  // Replace with a default value if necessary
+                  price: (data['price'] ?? 0).toDouble(),
+                  // Replace 0.0 with a default value if necessary
+                  createdBy: data['createdBy'] ?? '',
+                  // Replace '' with a default value if necessary
+                  image: data['image'] ?? '',
                 );
               }).toList();
               sink.add(items);
@@ -1005,41 +1068,6 @@ class _ViewPageState extends State<ViewPage> {
             },
           ),
         );
-  }
-
-  Future<void> navigateToCreatePage() async {
-    User? user = FirebaseAuth.instance.currentUser;
-    String? userEmail = user?.email!;
-    int selectedIndex = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => CreateItemPage(
-          selectedIndex: this.selectedIndex,
-          userEmail: widget.userEmail,
-        ),
-      ),
-    );
-    // When the CreatePage is dismissed, update the selectedIndex
-    setState(() {
-      this.selectedIndex = selectedIndex;
-    });
-  }
-
-  void deleteItem(String itemName) {
-    FirebaseFirestore.instance.collection('items').doc(itemName).delete();
-  }
-
-  // To navigate to the edit page, you can use the following method:
-  void navigateToEditPage(Item item) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => EditPage(
-          item: item,
-          userEmail: widget.userEmail,
-        ),
-      ),
-    );
   }
 }
 
@@ -1057,6 +1085,8 @@ class _EditPageState extends State<EditPage> {
   final descriptionController = TextEditingController();
   final priceController = TextEditingController();
   DateTime? selectedDate;
+  File? _imageFile;
+  String _imageUrl = '';
 
   @override
   void initState() {
@@ -1065,6 +1095,7 @@ class _EditPageState extends State<EditPage> {
     descriptionController.text = widget.item.description;
     priceController.text = widget.item.price.toString();
     selectedDate = widget.item.creationDate;
+    _imageUrl = widget.item.image;
   }
 
   @override
@@ -1073,6 +1104,16 @@ class _EditPageState extends State<EditPage> {
     descriptionController.dispose();
     priceController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    final pickedFile = await ImagePicker().pickImage(source: source);
+    if (pickedFile != null) {
+      setState(() {
+        _imageFile = File(pickedFile.path);
+        _imageUrl = '';
+      });
+    }
   }
 
   Future<void> _selectDate(BuildContext context) async {
@@ -1129,6 +1170,37 @@ class _EditPageState extends State<EditPage> {
               ),
             ),
           ),
+          const SizedBox(
+            height: 24,
+          ),
+          ElevatedButton(
+            onPressed: () {
+              // Show a dialog to choose between camera and gallery
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: Text('Choose an option'),
+                  actions: [
+                    TextButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _pickImage(ImageSource.camera);
+                      },
+                      child: Text('Camera'),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _pickImage(ImageSource.gallery);
+                      },
+                      child: Text('Gallery'),
+                    ),
+                  ],
+                ),
+              );
+            },
+            child: Text('Change Image'),
+          ),
           const SizedBox(height: 32),
           ElevatedButton(
             child: Text('Save Changes'),
@@ -1139,6 +1211,7 @@ class _EditPageState extends State<EditPage> {
                 price: double.parse(priceController.text),
                 creationDate: selectedDate ?? DateTime.now(),
                 createdBy: widget.userEmail,
+                image: _imageUrl,
               );
 
               try {
@@ -1580,6 +1653,184 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 }
 
+class MyItemsPage extends StatefulWidget {
+  final String userEmail;
+
+  MyItemsPage({required this.userEmail});
+
+  @override
+  _MyItemsPageState createState() => _MyItemsPageState();
+}
+
+class _MyItemsPageState extends State<MyItemsPage> {
+  Map<String, bool> showMoreMap = {};
+  int selectedIndex = 0;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(
+          title: Text("My Items"),
+        ),
+        body: StreamBuilder<List<Item>>(
+          stream: readUserItems(widget.userEmail),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return Text("Something went wrong $snapshot");
+            } else if (snapshot.hasData) {
+              final items = snapshot.data!;
+              return ListView(
+                children: items.map(buildItem).toList(),
+              );
+            } else {
+              return Center(child: CircularProgressIndicator());
+            }
+          },
+        ),
+        floatingActionButton: FloatingActionButton(
+          child: Icon(Icons.add),
+          onPressed: navigateToCreatePage,
+        ),
+      );
+
+  Stream<List<Item>> readUserItems(String userEmail) {
+    return FirebaseFirestore.instance
+        .collection('items')
+        .where('createdBy', isEqualTo: userEmail)
+        .snapshots()
+        .transform(
+          StreamTransformer<QuerySnapshot<Map<String, dynamic>>,
+              List<Item>>.fromHandlers(
+            handleData: (QuerySnapshot<Map<String, dynamic>> snapshot,
+                EventSink<List<Item>> sink) {
+              final items = snapshot.docs.map((doc) {
+                final data = doc.data();
+                return Item(
+                  name: data['name'] ?? '',
+                  description: data['description'] ?? '',
+                  creationDate:
+                      DateTime.parse(data['creationDate'] ?? '1970-01-01'),
+                  price: (data['price'] ?? 0).toDouble(),
+                  createdBy: data['createdBy'] ?? '',
+                  image: data['image'] ?? '',
+                );
+              }).toList();
+              sink.add(items);
+            },
+            handleError: (error, stackTrace, sink) {
+              print("Error fetching items: $error");
+              sink.addError("Something went wrong");
+            },
+          ),
+        );
+  }
+
+  Widget _buildItemAvatar(String? imageUrl) {
+    // Display a placeholder image if imageUrl is not available
+    if (imageUrl == null || imageUrl.isEmpty) {
+      return CircleAvatar(
+        radius: 25,
+        backgroundColor: Colors.grey,
+        child: Icon(Icons.image, color: Colors.white),
+      );
+    } else {
+      return CircleAvatar(
+        radius: 25,
+        backgroundImage: NetworkImage(imageUrl),
+      );
+    }
+  }
+
+  Widget buildItem(Item item) {
+    bool isExpanded = showMoreMap[item.name] ?? false;
+    return Column(
+      children: [
+        ListTile(
+          leading: _buildItemAvatar(item.image),
+          title: Text(item.name),
+          subtitle: Text(item.creationDate.toIso8601String()),
+          trailing: PopupMenuButton(
+            onSelected: (value) {
+              if (value == 'delete') {
+                deleteItem(item.name);
+              } else if (value == 'edit') {
+                navigateToEditPage(item);
+              }
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'edit',
+                child: Text('Edit'),
+              ),
+              PopupMenuItem(
+                value: 'delete',
+                child: Text('Delete'),
+              ),
+            ],
+          ),
+        ),
+        if (isExpanded)
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text("Description: ${item.description}"),
+                Text("Price: ${item.price}"),
+                Text("Created by: ${item.createdBy}"),
+              ],
+            ),
+          ),
+        TextButton(
+          onPressed: () {
+            setState(() {
+              showMoreMap[item.name] = !isExpanded;
+            });
+          },
+          child: Text(isExpanded ? "Show Less" : "Show More"),
+        ),
+        Divider(),
+      ],
+    );
+  }
+
+  Future<void> navigateToCreatePage() async {
+    User? user = FirebaseAuth.instance.currentUser;
+    String? userEmail = user?.email!;
+    int selectedIndex = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CreateItemPage(
+          selectedIndex: this.selectedIndex,
+          userEmail: widget.userEmail,
+        ),
+      ),
+    );
+    // When the CreatePage is dismissed, update the selectedIndex
+    setState(() {
+      this.selectedIndex = selectedIndex;
+    });
+  }
+
+  void deleteItem(String itemName) {
+    FirebaseFirestore.instance.collection('items').doc(itemName).delete();
+  }
+
+  // To navigate to the edit page, you can use the following method:
+  void navigateToEditPage(Item item) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EditPage(
+          item: item,
+          userEmail: widget.userEmail,
+        ),
+      ),
+    );
+  }
+  // Rest of the code for the navigateToCreatePage, deleteItem, and navigateToEditPage methods.
+  // ... (Copy them from the original _ViewPageState if they are not modified)
+}
+
 class Users {
   final String name;
   final String email;
@@ -1618,6 +1869,7 @@ class Item {
   DateTime creationDate;
   double price;
   String createdBy;
+  String image;
 
   Item({
     required this.name,
@@ -1625,6 +1877,7 @@ class Item {
     required this.creationDate,
     required this.price,
     required this.createdBy,
+    required this.image,
   });
 
   // You can add more methods or properties to the class as needed
@@ -1637,6 +1890,7 @@ class Item {
       'creationDate': creationDate.toIso8601String(),
       'price': price,
       'createdBy': createdBy,
+      'image': image,
     };
   }
 
@@ -1648,6 +1902,7 @@ class Item {
       creationDate: DateTime.parse(json['creationDate']),
       price: json['price'],
       createdBy: json['createdBy'],
+      image: json['image'],
     );
   }
 }
